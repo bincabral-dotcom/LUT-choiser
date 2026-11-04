@@ -51,9 +51,11 @@ jobs:
         run: |
           choco install ffmpeg --yes --no-progress
           $ffmpeg = Get-ChildItem 'C:\ProgramData\chocolatey\lib' -Filter ffmpeg.exe -Recurse | Select-Object -First 1
-          if ($null -eq $ffmpeg) { throw 'FFmpeg não foi encontrado após a instalação.' }
+          $ffprobe = Get-ChildItem 'C:\ProgramData\chocolatey\lib' -Filter ffprobe.exe -Recurse | Select-Object -First 1
+          if ($null -eq $ffmpeg -or $null -eq $ffprobe) { throw 'FFmpeg ou FFprobe não foi encontrado após a instalação.' }
           New-Item -ItemType Directory -Force -Path artifacts/LUT-Choiser/ffmpeg | Out-Null
           Copy-Item $ffmpeg.FullName artifacts/LUT-Choiser/ffmpeg/ffmpeg.exe
+          Copy-Item $ffprobe.FullName artifacts/LUT-Choiser/ffmpeg/ffprobe.exe
           $notice = Get-ChildItem -Path $env:BUILD_SOURCE_ROOT -Filter 'THIRD-PARTY-NOTICES.txt' -File -Recurse | Select-Object -First 1
           if ($null -ne $notice) { Copy-Item $notice.FullName artifacts/LUT-Choiser/ }
 
