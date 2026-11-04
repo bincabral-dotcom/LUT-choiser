@@ -1,9 +1,12 @@
-name: Build Windows app
+name: Build LUT Choiser for Windows
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
+    paths:
+      - '**/*.zip'
+      - '.github/workflows/build-windows.yml'
 
 permissions:
   contents: read
@@ -21,14 +24,27 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Compilar aplicativo portátil
-        run: >
-          dotnet publish src/LutChoice/LutChoice.csproj
-          --configuration Release
-          --runtime win-x64
-          --self-contained true
-          -p:PublishSingleFile=false
-          -p:PublishReadyToRun=true
-          --output artifacts/LUT-Choice
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter '*.zip' -File -Recurse |
+            Where-Object { $_.FullName -notmatch '\\(artifacts|bin|obj)\\' } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+
+          $sourceRoot = $env:GITHUB_WORKSPACE
+          if ($null -ne $archive) {
+            $sourceRoot = Join-Path $env:RUNNER_TEMP 'lut-choiser-source'
+            New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
+            Expand-Archive -LiteralPath $archive.FullName -DestinationPath $sourceRoot -Force
+            Write-Host "Compilando o ZIP: $($archive.Name)"
+          }
+          "BUILD_SOURCE_ROOT=$sourceRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          $project = Get-ChildItem -Path $sourceRoot -Filter '*.csproj' -Recurse |
+            Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } |
+            Select-Object -First 1
+          if ($null -eq $project) { throw 'Nenhum arquivo .csproj foi encontrado no ZIP ou no repositório.' }
+          dotnet publish $project.FullName --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=true --output artifacts/LUT-Choiser
 
       - name: Instalar FFmpeg para a distribuição
         shell: pwsh
@@ -36,24 +52,20 @@ jobs:
           choco install ffmpeg --yes --no-progress
           $ffmpeg = Get-ChildItem 'C:\ProgramData\chocolatey\lib' -Filter ffmpeg.exe -Recurse | Select-Object -First 1
           if ($null -eq $ffmpeg) { throw 'FFmpeg não foi encontrado após a instalação.' }
-          New-Item -ItemType Directory -Force -Path artifacts/LUT-Choice/ffmpeg | Out-Null
-          Copy-Item $ffmpeg.FullName artifacts/LUT-Choice/ffmpeg/ffmpeg.exe
-          Copy-Item THIRD-PARTY-NOTICES.txt artifacts/LUT-Choice/
-          $licenseCandidates = Get-ChildItem $ffmpeg.Directory.FullName -Recurse -Include 'LICENSE*','COPYING*' -ErrorAction SilentlyContinue
-          if ($licenseCandidates) {
-            New-Item -ItemType Directory -Force -Path artifacts/LUT-Choice/licenses | Out-Null
-            $licenseCandidates | ForEach-Object { Copy-Item $_.FullName artifacts/LUT-Choice/licenses/ }
-          }
+          New-Item -ItemType Directory -Force -Path artifacts/LUT-Choiser/ffmpeg | Out-Null
+          Copy-Item $ffmpeg.FullName artifacts/LUT-Choiser/ffmpeg/ffmpeg.exe
+          $notice = Get-ChildItem -Path $env:BUILD_SOURCE_ROOT -Filter 'THIRD-PARTY-NOTICES.txt' -File -Recurse | Select-Object -First 1
+          if ($null -ne $notice) { Copy-Item $notice.FullName artifacts/LUT-Choiser/ }
 
       - name: Criar ZIP da distribuição
         shell: pwsh
         run: |
-          Compress-Archive -Path artifacts/LUT-Choice/* -DestinationPath artifacts/LUT-Choice-win-x64.zip -Force
+          Compress-Archive -Path artifacts/LUT-Choiser/* -DestinationPath artifacts/LUT-Choiser-win-x64.zip -Force
 
       - name: Publicar download
         uses: actions/upload-artifact@v4
         with:
-          name: LUT-Choice-win-x64
-          path: artifacts/LUT-Choice-win-x64.zip
+          name: LUT-Choiser-win-x64
+          path: artifacts/LUT-Choiser-win-x64.zip
           if-no-files-found: error
           retention-days: 30
